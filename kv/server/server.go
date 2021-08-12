@@ -37,23 +37,89 @@ func NewServer(storage storage.Storage) *Server {
 
 // Raw API.
 func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kvrpcpb.RawGetResponse, error) {
-	// Your Code Here (1).
-	return nil, nil
+	reader, err := server.storage.Reader(nil)
+	if err != nil {
+		return nil, nil
+	}
+
+	resp := new(kvrpcpb.RawGetResponse)
+
+	val, _ := reader.GetCF(req.Cf, req.Key)
+	if len(val) == 0 {
+		resp.NotFound = true
+	} else {
+		resp.Value = val
+	}
+
+	return resp, nil
 }
 
 func (server *Server) RawPut(_ context.Context, req *kvrpcpb.RawPutRequest) (*kvrpcpb.RawPutResponse, error) {
-	// Your Code Here (1).
-	return nil, nil
+	batch := []storage.Modify{
+		{
+			Data: storage.Put{
+				Cf:    req.Cf,
+				Key:   req.Key,
+				Value: req.Value,
+			},
+		},
+	}
+
+	resp := new(kvrpcpb.RawPutResponse)
+
+	err := server.storage.Write(nil, batch)
+	if err != nil {
+		resp.Error = err.Error()
+		return resp, err
+	}
+
+	return resp, nil
 }
 
 func (server *Server) RawDelete(_ context.Context, req *kvrpcpb.RawDeleteRequest) (*kvrpcpb.RawDeleteResponse, error) {
-	// Your Code Here (1).
-	return nil, nil
+	batch := []storage.Modify{
+		{
+			Data: storage.Delete{
+				Cf:  req.Cf,
+				Key: req.Key,
+			},
+		},
+	}
+
+	resp := new(kvrpcpb.RawDeleteResponse)
+
+	err := server.storage.Write(nil, batch)
+
+	if err != nil {
+		resp.Error = err.Error()
+		return resp, nil
+	}
+
+	return resp, nil
 }
 
 func (server *Server) RawScan(_ context.Context, req *kvrpcpb.RawScanRequest) (*kvrpcpb.RawScanResponse, error) {
-	// Your Code Here (1).
-	return nil, nil
+	reader, err := server.storage.Reader(nil)
+	if err != nil {
+		return nil, err
+	}
+
+	iter := reader.IterCF(req.Cf)
+	defer iter.Close()
+
+	resp := new(kvrpcpb.RawScanResponse)
+	var kvs []*kvrpcpb.KvPair
+	var count uint32
+	for iter.Seek(req.StartKey); iter.Valid() && count < req.Limit; iter.Next() {
+		key := iter.Item().KeyCopy(nil)
+		value, _ := iter.Item().ValueCopy(nil)
+		kvs = append(kvs, &kvrpcpb.KvPair{Key: key, Value: value})
+		count++
+	}
+
+	resp.Kvs = kvs
+
+	return resp, nil
 }
 
 // Raft commands (tinykv <-> tinykv)
